@@ -16,19 +16,17 @@ def create_fixed_probability_connections(
     source_pop_size: int,
     target_pop_size: int,
     probability: float,
-    allow_autapses: bool = False
+    allow_autapses: bool = False,
+    is_recurrent: bool = False
 ):
     if probability <= 0:
         return cp.array([], dtype=cp.int32), cp.array([], dtype=cp.int32)
-    num_synapses = int(source_pop_size * target_pop_size * probability)
-    source_indices = cp.random.randint(0, source_pop_size, size=num_synapses, dtype=cp.int32)
-    target_indices = cp.random.randint(0, target_pop_size, size=num_synapses, dtype=cp.int32)
-    if not allow_autapses and source_pop_size == target_pop_size:
-        autapses = source_indices == target_indices
-        mask = ~autapses
-        source_indices = source_indices[mask]
-        target_indices = target_indices[mask]
-    return source_indices, target_indices
+    prob_matrix = cp.random.rand(source_pop_size, target_pop_size, dtype=cp.float32)
+    connections = prob_matrix < probability
+    if not allow_autapses and is_recurrent:
+        cp.fill_diagonal(connections, False)
+    source_indices, target_indices = connections.nonzero()
+    return source_indices.astype(cp.int32), target_indices.astype(cp.int32)
 
 def create_gaussian_distance_connections(
     source_pos: cp.ndarray,

@@ -1,7 +1,7 @@
 import cupy as cp
 import numpy as np
 from typing import Dict, List, Tuple
-from src.gpu import n_kernels, s_kernels
+from src.gpu import n_kernels, s_kernels, stdp_kernels
 
 class Simulator:
     def __init__(self, network: Dict[str, cp.ndarray], sim_config: Dict):
@@ -35,19 +35,39 @@ class Simulator:
             )
             num_spiked = cp.sum(spiked_this_step).item()
             if num_spiked > 0:
+                stdp_kernels.update_weights(
+                    self.network["weights"],
+                    self.network["source_neurons"],
+                    self.network["target_neurons"],
+                    spiked_this_step,
+                    self.network["trace_pre"],
+                    self.network["trace_post"],
+                    self.network["learning_rate"],
+                    self.network["max_weight"]
+                )
+            stdp_kernels.update_traces(
+                self.network["trace_pre"],
+                self.network["trace_post"],
+                spiked_this_step,
+                self.network["tau_trace_pre"],
+                self.network["tau_trace_post"],
+                self.dt
+            )
+            if num_spiked > 0:
                 spiked_indices = cp.where(spiked_this_step == 1)[0]
                 all_spike_times.extend([step * self.dt] * num_spiked)
                 all_spike_indices.append(cp.asnumpy(spiked_indices))
-            s_kernels.propagate_spikes(
-                spiked_this_step,
-                self.network["source_neurons"],
-                self.network["target_neurons"],
-                self.network["weights"],
-                self.network["delays"],
-                self.spike_buffer,
-                self.current_step
-            )
+                s_kernels.propagate_spikes(
+                    spiked_this_step,
+                    self.network["source_neurons"],
+                    self.network["target_neurons"],
+                    self.network["weights"],
+                    self.network["delays"],
+                    self.spike_buffer,
+                    self.current_step
+                )
             if step % 1000 == 0:
                 current_time_ms = step * self.dt
                 print(f"Time: {current_time_ms:.1f}ms - Spiked this step: {num_spiked}")
+        # print(f"Final weight: {self.network['weights'][0]}")
         return all_spike_times, np.concatenate(all_spike_indices) if all_spike_indices else np.array([])

@@ -26,7 +26,9 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
     total_neurons = sum(p["count"] for p in config["neuron_populations"])
     neuron_states = {
         "membrane_potential": cp.zeros(total_neurons, dtype=cp.float32),
-        "refractory_time": cp.zeros(total_neurons, dtype=cp.float32)
+        "refractory_time": cp.zeros(total_neurons, dtype=cp.float32),
+        "trace_pre": cp.zeros(total_neurons, dtype=cp.float32),
+        "trace_post": cp.zeros(total_neurons, dtype=cp.float32)
     }
     neuron_params = {}
     pop_info = {}
@@ -37,7 +39,7 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
         count = pop["count"]
         start = current_offset
         end = current_offset + count
-        pop_info[name] = {"start": start, "end": end, "count": count}      
+        pop_info[name] = {"start": start, "end": end, "count": count}
         if "positions" in pop:
             pos_config = pop["positions"]
             if pos_config["type"] == "grid":
@@ -47,10 +49,11 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
             else:
                 raise ValueError(f"Unknown position generation type: {pos_config['type']}")
         if count > 0:
-            for param, value in pop["params"].items():
-                if param not in neuron_params:
-                    neuron_params[param] = cp.zeros(total_neurons, dtype=cp.float32)
-                neuron_params[param][start:end] = _parse_params(value, count)
+            if "params" in pop:
+                for param, value in pop["params"].items():
+                    if param not in neuron_params:
+                        neuron_params[param] = cp.zeros(total_neurons, dtype=cp.float32)
+                    neuron_params[param][start:end] = _parse_params(value, count)
         current_offset += count
     if "v_leak" in neuron_params:
         neuron_states["membrane_potential"] = cp.copy(neuron_params["v_leak"])
@@ -58,6 +61,8 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
     all_target_ids: List[np.ndarray] = []
     all_weights: List[cp.ndarray] = []
     all_delays: List[cp.ndarray] = []
+    all_learning_rates: List[cp.ndarray] = []
+    all_max_weights: List[cp.ndarray] = []
     for conn in config["synaptic_connections"]:
         source_info = pop_info[conn["source"]]
         target_info = pop_info[conn["target"]]
@@ -65,12 +70,14 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
             continue
         conn_topo = conn["topology"]
         allow_autapses = conn_topo.get("allow_autapses", False)
+        is_recurrent = conn["source"] == conn["target"]
         if conn_topo["type"] == "fixed_probability":
             source_indices, target_indices = topology.create_fixed_probability_connections(
                 source_info["count"],
                 target_info["count"],
                 conn_topo["probability"],
-                allow_autapses
+                allow_autapses,
+                is_recurrent
             )
         elif conn_topo["type"] == "gaussian_distance":
             source_pop_name = conn["source"]
@@ -78,7 +85,7 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
             if source_pop_name not in pop_positions or target_pop_name not in pop_positions:
                 raise ValueError(f"Positions not defined for populations in connection: {source_pop_name} -> {target_pop_name}")
             source_pos = pop_positions[source_pop_name]
-            target_pos = pop_positions[target_pop_name]   
+            target_pos = pop_positions[target_pop_name]
             source_indices, target_indices = topology.create_gaussian_distance_connections(
                 source_pos,
                 target_pos,
@@ -98,13 +105,31 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
         delays = cp.maximum(1.0, cp.rint(delays))
         all_weights.append(weights)
         all_delays.append(delays)
+        plasticity_config = conn["synapse"].get("plasticity")
+        if plasticity_config:
+            learning_rates = _parse_params(plasticity_config["learning_rate"], num_new_synapses)
+            max_weights = _parse_params(plasticity_config["max_weight"], num_new_synapses)
+            all_learning_rates.append(learning_rates)
+            all_max_weights.append(max_weights)
+        else:
+            all_learning_rates.append(cp.zeros(num_new_synapses, dtype=cp.float32))
+            all_max_weights.append(cp.full(num_new_synapses, cp.inf, dtype=cp.float32))
     synapse_data = {
         "source_neurons": cp.asarray(np.concatenate(all_source_ids), dtype=cp.int32) if all_source_ids else cp.array([], dtype=cp.int32),
         "target_neurons": cp.asarray(np.concatenate(all_target_ids), dtype=cp.int32) if all_target_ids else cp.array([], dtype=cp.int32),
         "weights": cp.concatenate(all_weights) if all_weights else cp.array([], dtype=cp.float32),
-        "delays": cp.concatenate(all_delays).astype(cp.int32) if all_delays else cp.array([], dtype=cp.int32)
+        "delays": cp.concatenate(all_delays).astype(cp.int32) if all_delays else cp.array([], dtype=cp.int32),
+        "learning_rate": cp.concatenate(all_learning_rates) if all_learning_rates else cp.array([], dtype=cp.float32),
+        "max_weight": cp.concatenate(all_max_weights) if all_max_weights else cp.array([], dtype=cp.float32)
     }
     if pop_positions:
         all_positions = cp.vstack([pop_positions[p["name"]] for p in config["neuron_populations"] if p["name"] in pop_positions])
         synapse_data["neuron_positions"] = all_positions
-    return {**neuron_states, **neuron_params, **synapse_data}
+    network = {**neuron_states, **neuron_params, **synapse_data}
+    if "tau_trace_pre" not in network:
+        network["tau_trace_pre"] = cp.full(total_neurons, 20.0, dtype=cp.float32)
+    if "tau_trace_post" not in network:
+        network["tau_trace_post"] = cp.full(total_neurons, 20.0, dtype=cp.float32)
+    if "i_background" not in network:
+         network["i_background"] = cp.zeros(total_neurons, dtype=cp.float32)
+    return network
