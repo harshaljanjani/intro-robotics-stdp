@@ -1,0 +1,41 @@
+{
+  "neuron_populations": [
+    {
+      "name": "INPUT",
+      "count": 100,
+      "params": {
+        "v_leak": -65.0,
+        "v_reset": -65.0,
+        "v_threshold": -50.0,
+        "tau_m": 10.0,
+        "i_background": { "distribution": "uniform", "min": 15.0, "max": 20.0 }
+      }
+    },
+    {
+      "name": "OUTPUT",
+      "count": 100,
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 20.0,
+        "i_background": 0.0
+      }
+    }
+  ],
+  "synaptic_connections": [
+    {
+      "source": "INPUT",
+      "target": "OUTPUT",
+      "topology": {
+        "type": "fixed_probability",
+        "probability": 0.5
+      },
+      "synapse": {
+        "weight": { "distribution": "uniform", "min": 0.0, "max": 1.0 },
+        "delay": 1,
+        "prune_threshold": 0.2
+      }
+    }
+  ]
+}

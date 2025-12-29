@@ -63,6 +63,7 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
     all_delays: List[cp.ndarray] = []
     all_learning_rates: List[cp.ndarray] = []
     all_max_weights: List[cp.ndarray] = []
+    all_prune_thresholds: List[cp.ndarray] = []
     for conn in config["synaptic_connections"]:
         source_info = pop_info[conn["source"]]
         target_info = pop_info[conn["target"]]
@@ -80,19 +81,10 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
                 is_recurrent
             )
         elif conn_topo["type"] == "gaussian_distance":
-            source_pop_name = conn["source"]
-            target_pop_name = conn["target"]
-            if source_pop_name not in pop_positions or target_pop_name not in pop_positions:
-                raise ValueError(f"Positions not defined for populations in connection: {source_pop_name} -> {target_pop_name}")
-            source_pos = pop_positions[source_pop_name]
-            target_pos = pop_positions[target_pop_name]
+            source_pos = pop_positions[conn["source"]]
+            target_pos = pop_positions[conn["target"]]
             source_indices, target_indices = topology.create_gaussian_distance_connections(
-                source_pos,
-                target_pos,
-                conn_topo["p_max"],
-                conn_topo["sigma"],
-                allow_autapses
-            )
+                source_pos, target_pos, conn_topo["p_max"], conn_topo["sigma"], allow_autapses)
         else:
             raise ValueError(f"Unknown topology type: {conn_topo['type']}")
         num_new_synapses = len(source_indices)
@@ -100,17 +92,15 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
             continue
         all_source_ids.append(source_indices + source_info["start"])
         all_target_ids.append(target_indices + target_info["start"])
-        weights = _parse_params(conn["synapse"]["weight"], num_new_synapses)
-        delays = _parse_params(conn["synapse"]["delay"], num_new_synapses)
-        delays = cp.maximum(1.0, cp.rint(delays))
-        all_weights.append(weights)
-        all_delays.append(delays)
-        plasticity_config = conn["synapse"].get("plasticity")
+        synapse_config = conn["synapse"]
+        all_weights.append(_parse_params(synapse_config["weight"], num_new_synapses))
+        all_delays.append(cp.maximum(1.0, cp.rint(_parse_params(synapse_config["delay"], num_new_synapses))))
+        prune_thresh = _parse_params(synapse_config.get("prune_threshold", 0.0), num_new_synapses)
+        all_prune_thresholds.append(prune_thresh)
+        plasticity_config = synapse_config.get("plasticity")
         if plasticity_config:
-            learning_rates = _parse_params(plasticity_config["learning_rate"], num_new_synapses)
-            max_weights = _parse_params(plasticity_config["max_weight"], num_new_synapses)
-            all_learning_rates.append(learning_rates)
-            all_max_weights.append(max_weights)
+            all_learning_rates.append(_parse_params(plasticity_config["learning_rate"], num_new_synapses))
+            all_max_weights.append(_parse_params(plasticity_config["max_weight"], num_new_synapses))
         else:
             all_learning_rates.append(cp.zeros(num_new_synapses, dtype=cp.float32))
             all_max_weights.append(cp.full(num_new_synapses, cp.inf, dtype=cp.float32))
@@ -120,7 +110,8 @@ def build_network(config: Dict[str, Any]) -> Dict[str, cp.ndarray]:
         "weights": cp.concatenate(all_weights) if all_weights else cp.array([], dtype=cp.float32),
         "delays": cp.concatenate(all_delays).astype(cp.int32) if all_delays else cp.array([], dtype=cp.int32),
         "learning_rate": cp.concatenate(all_learning_rates) if all_learning_rates else cp.array([], dtype=cp.float32),
-        "max_weight": cp.concatenate(all_max_weights) if all_max_weights else cp.array([], dtype=cp.float32)
+        "max_weight": cp.concatenate(all_max_weights) if all_max_weights else cp.array([], dtype=cp.float32),
+        "prune_threshold": cp.concatenate(all_prune_thresholds) if all_prune_thresholds else cp.array([], dtype=cp.float32)
     }
     if pop_positions:
         all_positions = cp.vstack([pop_positions[p["name"]] for p in config["neuron_populations"] if p["name"] in pop_positions])

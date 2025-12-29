@@ -40,6 +40,7 @@ def run_experiment(network_config_name: str, base_path: Path):
 def main():
     base_path = Path(__file__).resolve().parent.parent.parent
     configurations_to_test = [
+        "pruning_test.json",
         "learning_test.json",
         "e_i_balance.json",
         "spatial_network.json"
