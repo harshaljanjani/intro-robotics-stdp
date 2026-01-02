@@ -84,8 +84,6 @@ async def run_simulation(simulation_app):
             color=np.array([0.0, 0.0, 1.0])
         )
     )
-    print("[DEBUG] World objects created. Starting simulation timeline with world.play()...")
-    world.play()
     print("[DEBUG] Awaiting world.reset_async()...")
     await world.reset_async()
     print("[DEBUG] world.reset_async() has completed.")
@@ -101,7 +99,7 @@ async def run_simulation(simulation_app):
         ball_a.set_linear_velocity(np.zeros(3))
         ball_b.set_linear_velocity(np.zeros(3))
         for _ in range(10): 
-            await world.step_async(render=False)
+            await world.step_async()
         for step in range(trial_steps):
             print(f"\r    -> Trial {i+1}, Step {step+1}/{trial_steps}", end="")
             current_time_ms = step * sim_config['dt']
@@ -120,9 +118,9 @@ async def run_simulation(simulation_app):
             spike_lists = [s for s in [motor_spikes, spikes_a, spikes_b] if s is not None]
             all_sensory_spikes = cp.concatenate(spike_lists) if spike_lists else None
             # think.
-            await loop.run_in_executor(None, snn_simulator.step, all_sensory_spikes)
+            snn_simulator.step(all_sensory_spikes)
             # act.
-            await world.step_async(render=True)
+            await world.step_async()
         print()
             
     print("=== TRAINING COMPLETE ===")
@@ -140,12 +138,15 @@ async def run_simulation(simulation_app):
 if __name__ == "__main__":
     simulation_app = SimulationApp({"headless": False})
     print("[DEBUG] SimulationApp object created. Waiting for Isaac Sim to initialize...")
-    try:
-        event_loop = asyncio.get_event_loop()
-        print("[DEBUG] Isaac Sim initialized. Starting main simulation coroutine.")
-        event_loop.run_until_complete(run_simulation(simulation_app))
-    except Exception as e:
-        print(f"An error occurred: {e}")
-    finally:
-        print("[DEBUG] Simulation finished or error occurred. Closing SimulationApp.")
-        simulation_app.close()
+    async def run_and_shutdown():
+        try:
+            await run_simulation(simulation_app)
+        except Exception as e:
+            print(f"An error occurred during simulation: {e}")
+        finally:
+            print("[DEBUG] Simulation task finished or error occurred. Closing SimulationApp.")
+            simulation_app.close()
+    print("[DEBUG] Isaac Sim initialized. Scheduling main simulation coroutine.")
+    asyncio.ensure_future(run_and_shutdown())
+    while simulation_app.is_running():
+        simulation_app.update()
