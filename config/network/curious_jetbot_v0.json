@@ -1,102 +1,205 @@
 {
-    "neuron_populations": [
-        {
-            "name": "Vision_Left",
-            "count": 100,
-            "type": "sensory"
-        },
-        {
-            "name": "Vision_Center",
-            "count": 100,
-            "type": "sensory"
-        },
-        {
-            "name": "Vision_Right",
-            "count": 100,
-            "type": "sensory"
-        },
-        {
-            "name": "Motor_Forward",
-            "count": 50,
-            "type": "motor",
-            "params": {
-                "v_leak": -65.0,
-                "v_reset": -65.0,
-                "v_threshold": -50.0,
-                "tau_m": 10.0
-            }
-        },
-        {
-            "name": "Motor_Turn_L",
-            "count": 50,
-            "type": "motor",
-            "params": {
-                "v_leak": -65.0,
-                "v_reset": -65.0,
-                "v_threshold": -50.0,
-                "tau_m": 10.0
-            }
-        },
-        {
-            "name": "Motor_Turn_R",
-            "count": 50,
-            "type": "motor",
-            "params": {
-                "v_leak": -65.0,
-                "v_reset": -65.0,
-                "v_threshold": -50.0,
-                "tau_m": 10.0
-            }
-        }
-    ],
-    "synaptic_connections": [
-        {
-            "source": "Vision_Center",
-            "target": "Motor_Forward",
-            "topology": {
-                "type": "fixed_probability",
-                "probability": 0.5
-            },
-            "synapse": {
-                "weight": { "distribution": "uniform", "min": 0.1, "max": 0.5 },
-                "delay": { "distribution": "uniform", "min": 1, "max": 5 },
-                "plasticity": {
-                    "learning_rate": 0.005,
-                    "max_weight": 5.0
-                }
-            }
-        },
-        {
-            "source": "Vision_Left",
-            "target": "Motor_Turn_L",
-            "topology": {
-                "type": "fixed_probability",
-                "probability": 0.5
-            },
-            "synapse": {
-                "weight": { "distribution": "uniform", "min": 0.1, "max": 0.5 },
-                "delay": { "distribution": "uniform", "min": 1, "max": 5 },
-                "plasticity": {
-                    "learning_rate": 0.005,
-                    "max_weight": 5.0
-                }
-            }
-        },
-        {
-            "source": "Vision_Right",
-            "target": "Motor_Turn_R",
-            "topology": {
-                "type": "fixed_probability",
-                "probability": 0.5
-            },
-            "synapse": {
-                "weight": { "distribution": "uniform", "min": 0.1, "max": 0.5 },
-                "delay": { "distribution": "uniform", "min": 1, "max": 5 },
-                "plasticity": {
-                    "learning_rate": 0.005,
-                    "max_weight": 5.0
-                }
-            }
-        }
-    ]
+  "neuron_populations": [
+    {
+      "name": "Vision_Left",
+      "count": 50,
+      "type": "sensory",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Vision_Center",
+      "count": 50,
+      "type": "sensory",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Vision_Right",
+      "count": 50,
+      "type": "sensory",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Touch_Sensor",
+      "count": 30,
+      "type": "sensory",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Proprio_Motion",
+      "count": 30,
+      "type": "sensory",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Sensory_Integration",
+      "count": 100,
+      "type": "lif",
+      "positions": {"type": "random"},
+      "params": {
+        "v_leak": {"distribution": "normal", "mean": -70.0, "std": 2.0},
+        "v_reset": -70.0,
+        "v_threshold": {"distribution": "normal", "mean": -55.0, "std": 2.0},
+        "tau_m": {"distribution": "normal", "mean": 15.0, "std": 3.0}
+      }
+    },
+    {
+      "name": "Motor_Forward",
+      "count": 20,
+      "type": "motor",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Motor_Turn_L",
+      "count": 20,
+      "type": "motor",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    },
+    {
+      "name": "Motor_Turn_R",
+      "count": 20,
+      "type": "motor",
+      "params": {
+        "v_leak": -70.0,
+        "v_reset": -70.0,
+        "v_threshold": -55.0,
+        "tau_m": 10.0
+      }
+    }
+  ],
+  "synaptic_connections": [
+    {
+      "source": "Vision_Left",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.3, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.5, "max": 2.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "plasticity": {"learning_rate": 0.001, "max_weight": 5.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Vision_Center",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.3, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.5, "max": 2.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "plasticity": {"learning_rate": 0.001, "max_weight": 5.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Vision_Right",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.3, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.5, "max": 2.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "plasticity": {"learning_rate": 0.001, "max_weight": 5.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Touch_Sensor",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.4, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 2.0},
+        "plasticity": {"learning_rate": 0.002, "max_weight": 6.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Proprio_Motion",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.4, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 2.0},
+        "plasticity": {"learning_rate": 0.002, "max_weight": 6.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Sensory_Integration",
+      "target": "Motor_Forward",
+      "topology": {"type": "fixed_probability", "probability": 0.2, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.3, "max": 1.5},
+        "delay": {"distribution": "uniform", "min": 2.0, "max": 5.0},
+        "plasticity": {"learning_rate": 0.005, "max_weight": 8.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Sensory_Integration",
+      "target": "Motor_Turn_L",
+      "topology": {"type": "fixed_probability", "probability": 0.2, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.3, "max": 1.5},
+        "delay": {"distribution": "uniform", "min": 2.0, "max": 5.0},
+        "plasticity": {"learning_rate": 0.005, "max_weight": 8.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Sensory_Integration",
+      "target": "Motor_Turn_R",
+      "topology": {"type": "fixed_probability", "probability": 0.2, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.3, "max": 1.5},
+        "delay": {"distribution": "uniform", "min": 2.0, "max": 5.0},
+        "plasticity": {"learning_rate": 0.005, "max_weight": 8.0},
+        "prune_threshold": 0.01
+      }
+    },
+    {
+      "source": "Sensory_Integration",
+      "target": "Sensory_Integration",
+      "topology": {"type": "fixed_probability", "probability": 0.15, "allow_autapses": false},
+      "synapse": {
+        "weight": {"distribution": "uniform", "min": 0.2, "max": 1.0},
+        "delay": {"distribution": "uniform", "min": 1.0, "max": 3.0},
+        "plasticity": {"learning_rate": 0.001, "max_weight": 4.0},
+        "prune_threshold": 0.01
+      }
+    }
+  ]
 }
