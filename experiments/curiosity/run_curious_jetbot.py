@@ -36,8 +36,8 @@ def run_simulation():
     robot = robot_controller.create_robot(world)
     world.reset()
     robot_controller.initialize()
-    robot_controller.forward_velocity = 25.0
-    robot_controller.turn_velocity = 15.0
+    robot_controller.forward_velocity = 10.0
+    robot_controller.turn_velocity = 10.0
     camera_path = "/World/JetbotCamera"
     # perception
     vision = VisionSystem(
@@ -76,7 +76,8 @@ def run_simulation():
     spike_history_accumulator = {name: 0 for name in populations_to_track_spikes}
     learning_history = {
         'weights': {name: [] for name in connections_to_monitor},
-        'spikes': {name: [] for name in populations_to_track_spikes}
+        'spikes': {name: [] for name in populations_to_track_spikes},
+        'prediction_errors': []
     }
     debug_dir = Path("_debug_vision")
     debug_dir.mkdir(exist_ok=True)
@@ -113,7 +114,8 @@ def run_simulation():
         motor_rates = snn_simulator.get_motor_firing_rates()
         # decide (via curiosity).
         robot_pos, _ = robot.get_world_pose()
-        action = curiosity_engine.step(img_gpu, robot_pos, motion_intensity)
+        # curiosity engine handles both recovery and exploration
+        action = curiosity_engine.step(img_gpu, robot_pos)
         # act.
         if action == "forward":
             robot_controller.forward()
@@ -145,9 +147,10 @@ def run_simulation():
             for name, total_spikes in spike_history_accumulator.items():
                 learning_history['spikes'][name].append(total_spikes)
                 spike_history_accumulator[name] = 0
-            avg_pred_error = np.mean(curiosity_engine.prediction_errors[-10:]) if curiosity_engine.prediction_errors else 0.0
+            avg_novelty = curiosity_engine.get_average_novelty()
+            learning_history['prediction_errors'].append(avg_novelty)
             stuck_status = "RECOVERING" if curiosity_engine.recovery_mode else "exploring"
-            print(f"Step {step}/{max_steps} | Action: {action} | Status: {stuck_status} | Motor Rates: {motor_rates} | Pred Error: {avg_pred_error:.3f}")
+            print(f"Step {step}/{max_steps} | Action: {action} | Status: {stuck_status} | Motor Rates: {motor_rates} | Novelty: {avg_novelty:.3f}")
     print("\n=== EXPLORATION COMPLETE ===")
     output_dir = base_path / "results" / "visualizations" / "curious_jetbot"
     save_curiosity_plots(learning_history, output_dir)

@@ -1,37 +1,40 @@
 import numpy as np
 from collections import deque
+import random
 
 class GoalGenerator:
     def __init__(self, action_space):
         self.action_space = action_space
         self.active_goal = None
         self.goal_history = deque(maxlen=50)
-        self.goal_types = ["explore_object", "test_causality", "repeat_surprising"]
+        self.approach_threshold_pixels = 3000
+        self.goal_timeout = 150
+        self.goal_age = 0
         print("[COGNITION] GoalGenerator initialized (Information-Gain Driven)")
 
-    def generate_goal(self, object_tracker, ipe, curiosity_engine):
+    def generate_goal(self, object_tracker, ipe):
         # generate next goal based on current knowledge state
         objects = object_tracker.get_all_objects()
-        if len(objects) == 0:
-            return self._create_goal("explore_space", None, None)
-        # strategy 1: find object with highest uncertainty
-        max_uncertainty = 0.0
-        most_uncertain_obj = None
-        for obj_id, _ in objects.items():
-            for action in self.action_space:
-                uncertainty = ipe.get_uncertainty(action, obj_id, object_tracker)
-                if uncertainty > max_uncertainty:
-                    max_uncertainty = uncertainty
-                    most_uncertain_obj = obj_id
-        # strategy 2: check if curiosity engine has high prediction error
-        recent_pred_errors = curiosity_engine.prediction_errors[-10:] if curiosity_engine.prediction_errors else []
-        avg_pred_error = np.mean(recent_pred_errors) if recent_pred_errors else 0.0
-        # prioritize uncertainty-based exploration
-        if max_uncertainty > 0.7 and most_uncertain_obj is not None:
-            action = np.random.choice(self.action_space)
-            return self._create_goal("test_causality", most_uncertain_obj, action)
-        # fallback: explore space
-        return self._create_goal("explore_space", None, None)
+        if not objects:
+            return self._create_goal("explore_space", None, "forward")
+        uncertain_options = []
+        for obj_id in objects.keys():
+            # TODO: for now, we only test causality with a forward push (Jetbot).
+            uncertainty = ipe.get_uncertainty("forward", obj_id, object_tracker)
+            if uncertainty > 0.5:
+                uncertain_options.append(obj_id)
+        if uncertain_options:
+            target_id = random.choice(uncertain_options)
+            target_obj = object_tracker.get_object(target_id)
+            if target_obj:
+                # if the object is too small/far, the goal is to approach it
+                if target_obj["pixel_count"] < self.approach_threshold_pixels:
+                    return self._create_goal("approach", target_id, None)
+                # if the object is close enough, test causality with a push
+                else:
+                    return self._create_goal("test_causality", target_id, "forward")
+        # if we are certain about everything, explore space to find new things
+        return self._create_goal("explore_space", None, "forward")
 
     def _create_goal(self, goal_type, target_object_id, action):
         goal = {
@@ -42,19 +45,29 @@ class GoalGenerator:
         }
         self.goal_history.append(goal)
         self.active_goal = goal
+        self.goal_age = 0
         return goal
 
     def get_active_goal(self):
         return self.active_goal
 
-    def mark_goal_complete(self, outcome):
-        if self.active_goal is not None:
-            self.active_goal["outcome"] = outcome
-            self.active_goal["completed"] = True
-        self.active_goal = None
+    def should_abandon_goal(self, object_tracker):
+        if self.active_goal is None:
+            return False
+        self.goal_age += 1
+        if self.goal_age > self.goal_timeout:
+            return True
+        if self.active_goal["type"] in ["approach", "test_causality"]:
+            target_id = self.active_goal.get("target")
+            if target_id is not None:
+                obj = object_tracker.get_object(target_id)
+                if obj is None:
+                    return True
+        return False
 
     def print_goal(self, goal):
         if goal is None:
             print("[GOAL] No active goal")
             return
-        print(f"[GOAL] type={goal['type']} | target={goal.get('target')} | action={goal.get('action')}")
+        target_info = f"target={goal.get('target')}" if goal.get('target') is not None else "target=None"
+        print(f"[GOAL] type={goal['type']} | {target_info} | action={goal.get('action')}")

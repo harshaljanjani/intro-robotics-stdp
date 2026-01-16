@@ -1,5 +1,6 @@
 import numpy as np
 import cupy as cp
+from collections import deque
 from src.cognition.recovery_detector import RecoveryDetector
 
 class CuriosityEngine:
@@ -7,17 +8,18 @@ class CuriosityEngine:
         self.action_space = action_space
         self.sensory_dim = sensory_dim
         self.prediction_window = 50
-        self.sensory_history = []
-        self.prediction_errors = []
-        self.epsilon = 0.25
-        self.action_history = []
-        self.action_window = 10
+        self.sensory_history = deque(maxlen=self.prediction_window)
+        self.prediction_errors = deque(maxlen=self.prediction_window)
+        self.action_history = deque(maxlen=20)
         self.recovery_detector = RecoveryDetector()
         self.recovery_mode = False
         self.recovery_steps = 0
         self.recovery_sequence = ["turn_right"] * 8 + ["forward"] * 3
         self.recovery_cooldown = 0
-        print("[COGNITION] v0 Curiosity Engine initialized (Prediction-Error Driven)")
+        self.recovery_cooldown_duration = 200
+        self.action_novelty_scores = {action: deque(maxlen=10) for action in action_space}
+        self.forward_bias = 0.6
+        print("[COGNITION] v0 Curiosity Engine initialized (Novelty-Seeking + Anti-Perseveration)")
 
     def _compute_sensory_summary(self, img_gpu):
         if img_gpu is None or img_gpu.shape[0] == 0:
@@ -35,62 +37,84 @@ class CuriosityEngine:
             summary[:flattened.shape[0]] = flattened
         return summary
 
-    def _predict_next_state(self):
-        if len(self.sensory_history) < 2:
-            return self.sensory_history[-1] if self.sensory_history else cp.zeros(self.sensory_dim, dtype=cp.float32)
-        recent = self.sensory_history[-min(5, len(self.sensory_history)):]
-        velocity = cp.mean(cp.array([recent[i+1] - recent[i] for i in range(len(recent)-1)]), axis=0)
-        prediction = self.sensory_history[-1] + velocity
-        return prediction
+    def _compute_novelty(self, current_summary):
+        if len(self.sensory_history) < 5:
+            return 1.0
+        recent = list(self.sensory_history)[-5:]
+        min_distance = float('inf')
+        for past_state in recent:
+            distance = float(cp.linalg.norm(current_summary - past_state))
+            min_distance = min(min_distance, distance)
+        novelty = min_distance / 100.0
+        return min(1.0, novelty)
 
-    def _compute_prediction_error(self, actual):
-        if len(self.sensory_history) < 2:
-            return 0.0
-        predicted = self._predict_next_state()
-        error = float(cp.linalg.norm(actual - predicted))
-        return error
+    def _compute_action_diversity_score(self):
+        if len(self.action_history) < 5:
+            return 1.0
+        recent_actions = list(self.action_history)[-5:]
+        unique_actions = len(set(recent_actions))
+        diversity = unique_actions / 5.0
+        return diversity
 
-    def step(self, sensory_input, robot_position, motion_intensity=0.0):
+    def step(self, sensory_input, robot_position):
         sensory_summary = self._compute_sensory_summary(sensory_input)
-        pred_error = self._compute_prediction_error(sensory_summary)
-        self.prediction_errors.append(pred_error)
-        if len(self.prediction_errors) > self.prediction_window:
-            self.prediction_errors.pop(0)
+        novelty = self._compute_novelty(sensory_summary)
         self.sensory_history.append(sensory_summary)
-        if len(self.sensory_history) > self.prediction_window:
-            self.sensory_history.pop(0)
         current_action = self.action_history[-1] if self.action_history else "stop"
         self.recovery_detector.update(robot_position, current_action)
         if self.recovery_cooldown > 0:
             self.recovery_cooldown -= 1
+        # if in recovery mode, continue the sequence
         if self.recovery_mode:
             action = self.recovery_sequence[self.recovery_steps]
             self.recovery_steps += 1
             if self.recovery_steps >= len(self.recovery_sequence):
                 self.recovery_mode = False
                 self.recovery_steps = 0
-                self.recovery_cooldown = 50
+                self.recovery_cooldown = self.recovery_cooldown_duration
                 print("[CURIOSITY] Recovery complete, cooldown active")
-        elif self.recovery_detector.is_stuck() and self.recovery_cooldown == 0:
+            self.action_history.append(action)
+            return action # explicitly return the recovery action
+        # check if we should enter recovery mode
+        if self.recovery_detector.is_stuck() and self.recovery_cooldown == 0:
             self.recovery_mode = True
             self.recovery_steps = 0
-            action = self.recovery_sequence[0]
-            print("[CURIOSITY] WALL DETECTED! Executing 180-degree turn")
+            print("[CURIOSITY] WALL DETECTED! Executing recovery sequence.")
+            action = self.recovery_sequence[0] # the first recovery action
+            self.action_history.append(action)
+            return action
+        # priority 3: novelty-seeking with anti-perseveration
+        if len(self.action_history) >= 3:
+            last_action = self.action_history[-1]
+            self.action_novelty_scores[last_action].append(novelty)
+        diversity = self._compute_action_diversity_score()
+        recent_action_counts = {}
+        recent = list(self.action_history)[-10:] if len(self.action_history) >= 10 else list(self.action_history)
+        for act in self.action_space:
+            recent_action_counts[act] = recent.count(act)
+        action_scores = {}
+        for act in self.action_space:
+            avg_novelty = np.mean(list(self.action_novelty_scores[act])) if len(self.action_novelty_scores[act]) > 0 else 0.5
+            recency_penalty = recent_action_counts[act] / max(1, len(recent))
+            forward_bonus = self.forward_bias if act == "forward" else 0.0
+            action_scores[act] = avg_novelty - (recency_penalty * 0.5) + forward_bonus
+        if diversity < 0.4:
+            least_used = min(recent_action_counts, key=recent_action_counts.get)
+            action = least_used
         else:
-            # exploit: choose action that historically led to high prediction error
-            if np.random.rand() < self.epsilon:
-                action_index = np.random.randint(0, len(self.action_space))
-            else:
-                if len(self.action_history) < self.action_window:
-                    action_index = np.random.randint(0, len(self.action_space))
-                else:
-                    action_counts = {a: self.action_history[-self.action_window:].count(a) for a in range(len(self.action_space))}
-                    action_index = min(action_counts, key=action_counts.get)
-            action = self.action_space[action_index]
+            action = max(action_scores.keys(), key=lambda k: action_scores[k])
         self.action_history.append(action)
-        if len(self.action_history) > self.prediction_window:
-            self.action_history.pop(0)
         return action
+
+    def get_average_novelty(self):
+        if len(self.sensory_history) < 2:
+            return 0.0
+        recent_novelties = []
+        recent = list(self.sensory_history)[-10:]
+        for i in range(1, len(recent)):
+            novelty = self._compute_novelty(recent[i])
+            recent_novelties.append(novelty)
+        return np.mean(recent_novelties) if recent_novelties else 0.0
 
     def get_most_surprising_object(self, object_tracker):
         objects = object_tracker.get_all_objects()
@@ -104,18 +128,3 @@ class CuriosityEngine:
                 max_surprise = vel_magnitude
                 most_surprising = obj_id
         return most_surprising
-
-    def propose_exploration_goal(self, object_tracker, ipe):
-        objects = object_tracker.get_all_objects()
-        if not objects:
-            return "explore"
-        max_uncertainty = 0.0
-        target_obj = None
-        for obj_id in objects.keys():
-            uncertainty = ipe.get_uncertainty("push", obj_id, object_tracker)
-            if uncertainty > max_uncertainty:
-                max_uncertainty = uncertainty
-                target_obj = obj_id
-        if target_obj is not None and max_uncertainty > 0.5:
-            return f"approach_object_{target_obj}"
-        return "explore"

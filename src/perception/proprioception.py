@@ -26,11 +26,11 @@ class ProprioceptionSystem:
             self.velocity_history.pop(0)
         return np.mean(self.velocity_history)
 
-    def encode_motion_to_spikes(self, pop_info, pop_name, motion_intensity, threshold=0.1):
+    def encode_motion_to_spikes(self, pop_info, pop_name, motion_intensity, threshold=0.1, sensitivity=1.0):
         if motion_intensity < threshold:
             return None
         pop = pop_info[pop_name]
-        num_firing = int(pop['count'] * min(1.0, motion_intensity / 10.0))
+        num_firing = int(pop['count'] * min(1.0, (motion_intensity / 10.0) * sensitivity))
         if num_firing == 0:
             return None
         indices = cp.random.choice(
